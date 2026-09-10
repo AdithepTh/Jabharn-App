@@ -12,12 +12,14 @@
   html, body { margin:0; padding:0; background:#F1F3EE; -webkit-tap-highlight-color: transparent; }
   #root { min-height: 100vh; }
   #boot-msg { font-family: system-ui, sans-serif; text-align:center; padding: 40px 20px; color:#5B685F; }
+  #storage-banner { display:none; font-family: system-ui, sans-serif; font-size: 12px; text-align:center;
+    background:#F0E4C6; color:#7a5c14; padding: 8px 14px; }
 </style>
 </head>
 <body>
+<div id="storage-banner"></div>
 <div id="root"><div id="boot-msg">กำลังโหลดแอป...</div></div>
 
-<!-- React 18 (UMD, embedded inline -- fully offline, no CDN needed) -->
 <script>
 /**
  * @license React
@@ -323,15 +325,34 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 </script>
 
-<!-- Offline storage shim: mimics the window.storage API used by the app, backed by localStorage -->
 <script>
 (function () {
+  var memoryStore = {};
+  var useMemory = false;
+  try {
+    var testKey = "__jabharn_probe__";
+    window.localStorage.setItem(testKey, "1");
+    window.localStorage.removeItem(testKey);
+  } catch (e) {
+    useMemory = true;
+  }
+  if (useMemory) {
+    var banner = document.getElementById("storage-banner");
+    if (banner) {
+      banner.style.display = "block";
+      banner.textContent = "\u0e40\u0e1a\u0e23\u0e32\u0e27\u0e4c\u0e40\u0e0b\u0e2d\u0e23\u0e4c\u0e19\u0e35\u0e49\u0e1b\u0e34\u0e14\u0e01\u0e32\u0e23\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01\u0e16\u0e32\u0e27\u0e23 \u2014 \u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e08\u0e30\u0e2b\u0e32\u0e22\u0e40\u0e21\u0e37\u0e48\u0e2d\u0e1b\u0e34\u0e14\u0e2b\u0e19\u0e49\u0e32 \u0e25\u0e2d\u0e07\u0e40\u0e1b\u0e34\u0e14\u0e14\u0e49\u0e27\u0e22 Safari \u0e42\u0e14\u0e22\u0e15\u0e23\u0e07\u0e41\u0e17\u0e19 Quick Look";
+    }
+  }
   function keyFor(k, shared) { return "jabharn_store::" + (shared ? "shared::" : "priv::") + k; }
+  function memGet(fullKey) {
+    return Object.prototype.hasOwnProperty.call(memoryStore, fullKey) ? memoryStore[fullKey] : null;
+  }
   window.storage = {
     get: function (key, shared) {
       return new Promise(function (resolve, reject) {
         try {
-          var v = localStorage.getItem(keyFor(key, !!shared));
+          var fullKey = keyFor(key, !!shared);
+          var v = useMemory ? memGet(fullKey) : localStorage.getItem(fullKey);
           if (v === null) { reject(new Error("key not found")); return; }
           resolve({ key: key, value: v, shared: !!shared });
         } catch (e) { reject(e); }
@@ -340,7 +361,9 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
     set: function (key, value, shared) {
       return new Promise(function (resolve, reject) {
         try {
-          localStorage.setItem(keyFor(key, !!shared), value);
+          var fullKey = keyFor(key, !!shared);
+          if (useMemory) { memoryStore[fullKey] = value; }
+          else { localStorage.setItem(fullKey, value); }
           resolve({ key: key, value: value, shared: !!shared });
         } catch (e) { reject(e); }
       });
@@ -348,7 +371,9 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
     delete: function (key, shared) {
       return new Promise(function (resolve, reject) {
         try {
-          localStorage.removeItem(keyFor(key, !!shared));
+          var fullKey = keyFor(key, !!shared);
+          if (useMemory) { delete memoryStore[fullKey]; }
+          else { localStorage.removeItem(fullKey); }
           resolve({ key: key, deleted: true, shared: !!shared });
         } catch (e) { reject(e); }
       });
@@ -356,12 +381,20 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
     list: function (prefix, shared) {
       return new Promise(function (resolve, reject) {
         try {
-          var fullPfx = "jabharn_store::" + (shared ? "shared::" : "priv::") + (prefix || "");
-          var stripLen = ("jabharn_store::" + (shared ? "shared::" : "priv::")).length;
+          var base = "jabharn_store::" + (shared ? "shared::" : "priv::");
+          var fullPfx = base + (prefix || "");
           var keys = [];
-          for (var i = 0; i < localStorage.length; i++) {
-            var k = localStorage.key(i);
-            if (k.indexOf(fullPfx) === 0) keys.push(k.slice(stripLen));
+          if (useMemory) {
+            for (var k in memoryStore) {
+              if (Object.prototype.hasOwnProperty.call(memoryStore, k) && k.indexOf(fullPfx) === 0) {
+                keys.push(k.slice(base.length));
+              }
+            }
+          } else {
+            for (var i = 0; i < localStorage.length; i++) {
+              var lk = localStorage.key(i);
+              if (lk.indexOf(fullPfx) === 0) keys.push(lk.slice(base.length));
+            }
           }
           resolve({ keys: keys, prefix: prefix, shared: !!shared });
         } catch (e) { reject(e); }
@@ -371,12 +404,13 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 })();
 </script>
 
-<!-- App code: pre-compiled from JSX to plain JS ahead of time (no runtime transform, no eval needed) -->
 <script>
 const {
   useState,
   useEffect,
-  useCallback
+  useCallback,
+  useContext,
+  createContext
 } = React;
 function Icon({
   children,
@@ -415,6 +449,88 @@ const Camera = mkIcon("\uD83D\uDCF7");
 const Lock = mkIcon("\uD83D\uDD12");
 const Unlock = mkIcon("\uD83D\uDD13");
 const STORAGE_KEY = "jabharn_v2";
+const translations = {
+  th: {
+    appTagline: "จดทริป แชร์บิล จบทุกเรื่องเงินในกลุ่มเพื่อน",
+    resetData: "ล้างข้อมูล",
+    refresh: "รีเฟรช",
+    loading: "กำลังโหลดข้อมูล...",
+    createTrip: "สร้างทริป",
+    createTripHint: "วันไป-กลับ ที่พัก อาหารแยกรายมื้อ",
+    createParty: "สร้างปาร์ตี้ / แชร์บิล",
+    createPartyHint: "ใส่วันที่หรือไม่ก็ได้ เหมาะกับมื้อเดียว งานเดียว หรือคำนวณด่วน",
+    searchPlaceholder: "ค้นหาทริป จังหวัด ร้าน หรือโรงแรม...",
+    emptyHome: "ยังไม่มีทริปหรือปาร์ตี้ — เริ่มจากปุ่มด้านบนได้เลย",
+    trash: "ถังขยะ",
+    storageUsed: "พื้นที่ใช้งาน",
+    clearAllPhotos: "ลบรูปทั้งหมด",
+    tabAccommodation: "ที่พัก",
+    tabMeals: "อาหาร",
+    tabReport: "รายงาน",
+    finishTrip: "จบทริป",
+    finishParty: "จบปาร์ตี้",
+    reopen: "เปิดแก้ไข",
+    deleteTrip: "ลบทริป",
+    delete: "ลบ",
+    edit: "แก้ไข",
+    save: "บันทึก",
+    cancel: "ยกเลิก",
+    add: "เพิ่ม",
+    close: "ปิด",
+    manageMembers: "จัดการสมาชิก",
+    settlementTitle: "ควรโอนเงินยังไง",
+    settledStamp: "ลงตัวแล้ว ✓",
+    householdHint: "คิดยอดรวมเป็นกลุ่ม/ครอบครัวแล้ว — โอนหากันแค่ระหว่างตัวแทนแต่ละกลุ่มพอ",
+    trashTitle: "ถังขยะ",
+    trashEmpty: "ถังขยะว่างเปล่า",
+    restore: "กู้คืน",
+    deleteForever: "ลบถาวรตอนนี้"
+  },
+  en: {
+    appTagline: "Log trips, split bills, settle up with friends",
+    resetData: "Clear data",
+    refresh: "Refresh",
+    loading: "Loading...",
+    createTrip: "New Trip",
+    createTripHint: "Dates, lodging, meals by course",
+    createParty: "New Party / Split Bill",
+    createPartyHint: "Date is optional — great for a single meal or a quick calculation",
+    searchPlaceholder: "Search trips, province, restaurant, or hotel...",
+    emptyHome: "No trips or parties yet — start with a button above",
+    trash: "Trash",
+    storageUsed: "Storage used",
+    clearAllPhotos: "Clear all photos",
+    tabAccommodation: "Lodging",
+    tabMeals: "Meals",
+    tabReport: "Report",
+    finishTrip: "Finish trip",
+    finishParty: "Finish party",
+    reopen: "Reopen",
+    deleteTrip: "Delete trip",
+    delete: "Delete",
+    edit: "Edit",
+    save: "Save",
+    cancel: "Cancel",
+    add: "Add",
+    close: "Close",
+    manageMembers: "Manage members",
+    settlementTitle: "Who should pay whom",
+    settledStamp: "All settled ✓",
+    householdHint: "Totals are grouped by household — only representatives need to transfer money",
+    trashTitle: "Trash",
+    trashEmpty: "Trash is empty",
+    restore: "Restore",
+    deleteForever: "Delete forever"
+  }
+};
+const LangContext = createContext({
+  lang: "th",
+  t: k => k,
+  setLang: () => {}
+});
+function useT() {
+  return useContext(LangContext);
+}
 const uid = p => `${p}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 const round2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
 const fmt = n => round2(n).toLocaleString("th-TH", {
@@ -586,6 +702,33 @@ function simplifyDebts(net) {
   }
   return tx;
 }
+function representativeOf(name, households) {
+  const h = (households || []).find(h => h.memberNames.includes(name));
+  return h ? h.representative : name;
+}
+function computeHouseholdNet(members, households, entries) {
+  const individualNet = computeBalancesFromEntries(members, entries);
+  const householdNet = {};
+  members.forEach(m => {
+    const rep = representativeOf(m, households);
+    householdNet[rep] = round2((householdNet[rep] || 0) + (individualNet[m] || 0));
+  });
+  return householdNet;
+}
+function settlementNet(members, households, entries) {
+  return households && households.length > 0 ? computeHouseholdNet(members, households, entries) : computeBalancesFromEntries(members, entries);
+}
+function isMemberReferenced(entity, name) {
+  const isTrip = entity.kind === "trip";
+  if (isTrip) {
+    if (entity.accommodations.some(a => a.paidBy === name || a.splitAmong.includes(name))) return true;
+    if (entity.meals.some(m => m.paidBy === name || m.items.some(it => it.splitAmong.includes(name)))) return true;
+  } else {
+    if (entity.expenses.some(e => e.paidBy === name || e.splitAmong.includes(name))) return true;
+  }
+  if ((entity.households || []).some(h => h.memberNames.includes(name) || h.representative === name)) return true;
+  return false;
+}
 function tripEntries(trip) {
   const acc = trip.accommodations.map(a => ({
     amount: a.amount,
@@ -643,6 +786,19 @@ function tripPersonBreakdown(trip) {
 function partyTotal(p) {
   return round2(p.expenses.reduce((s, e) => s + e.amount, 0));
 }
+const TRASH_RETENTION_DAYS = 30;
+function daysSince(iso) {
+  return (Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000);
+}
+function isExpiredTrash(entity) {
+  return !!entity.deletedAt && daysSince(entity.deletedAt) > TRASH_RETENTION_DAYS;
+}
+function purgeExpired(data) {
+  return {
+    trips: data.trips.filter(t => !isExpiredTrash(t)),
+    parties: data.parties.filter(p => !isExpiredTrash(p))
+  };
+}
 function matchesSearch(item, q) {
   if (!q) return true;
   const s = q.toLowerCase();
@@ -694,11 +850,20 @@ function App() {
   const [view, setView] = useState("home");
   const [selectedId, setSelectedId] = useState(null);
   const [query, setQuery] = useState("");
+  const [lang, setLang] = useState("th");
+  const t = useCallback(key => translations[lang] && translations[lang][key] || translations.th[key] || key, [lang]);
   useEffect(() => {
     (async () => {
       try {
         const res = await window.storage.get(STORAGE_KEY, false);
-        if (res && res.value) setData(JSON.parse(res.value));
+        if (res && res.value) {
+          const parsed = JSON.parse(res.value);
+          const cleaned = purgeExpired(parsed);
+          setData(cleaned);
+          if (cleaned.trips.length !== parsed.trips.length || cleaned.parties.length !== parsed.parties.length) {
+            window.storage.set(STORAGE_KEY, JSON.stringify(cleaned), false).catch(() => {});
+          }
+        }
       } catch (e) {}
       setLoaded(true);
     })();
@@ -722,9 +887,11 @@ function App() {
       endDate,
       createdAt: new Date().toISOString(),
       members,
+      households: [],
       accommodations: [],
       meals: [],
-      closed: false
+      closed: false,
+      deletedAt: null
     };
     persist({
       ...data,
@@ -737,13 +904,21 @@ function App() {
     ...data,
     trips: data.trips.map(t => t.id === id ? fn(t) : t)
   });
-  const deleteTrip = id => {
-    persist({
-      ...data,
-      trips: data.trips.filter(t => t.id !== id)
-    });
+  const softDeleteTrip = id => {
+    updateTrip(id, t => ({
+      ...t,
+      deletedAt: new Date().toISOString()
+    }));
     setView("home");
   };
+  const restoreTrip = id => updateTrip(id, t => ({
+    ...t,
+    deletedAt: null
+  }));
+  const hardDeleteTrip = id => persist({
+    ...data,
+    trips: data.trips.filter(t => t.id !== id)
+  });
   const createParty = (kindLabel, name, date, members) => {
     const party = {
       id: uid("pty"),
@@ -751,9 +926,11 @@ function App() {
       name,
       date,
       members,
+      households: [],
       createdAt: new Date().toISOString(),
       expenses: [],
-      closed: false
+      closed: false,
+      deletedAt: null
     };
     persist({
       ...data,
@@ -767,13 +944,21 @@ function App() {
     ...data,
     parties: data.parties.map(p => p.id === id ? fn(p) : p)
   });
-  const deleteParty = id => {
-    persist({
-      ...data,
-      parties: data.parties.filter(p => p.id !== id)
-    });
+  const softDeleteParty = id => {
+    updateParty(id, p => ({
+      ...p,
+      deletedAt: new Date().toISOString()
+    }));
     setView("home");
   };
+  const restoreParty = id => updateParty(id, p => ({
+    ...p,
+    deletedAt: null
+  }));
+  const hardDeleteParty = id => persist({
+    ...data,
+    parties: data.parties.filter(p => p.id !== id)
+  });
   const resetAll = () => {
     if (window.confirm("ล้างข้อมูลทั้งหมด (ทริป/ปาร์ตี้/ประวัติ)? ทำแล้วกู้คืนไม่ได้นะ")) {
       persist({
@@ -810,7 +995,13 @@ function App() {
   const selectedTrip = data.trips.find(t => t.id === selectedId);
   const selectedParty = data.parties.find(p => p.id === selectedId);
   const hasAny = data.trips.length > 0 || data.parties.length > 0;
-  return React.createElement("div", {
+  return React.createElement(LangContext.Provider, {
+    value: {
+      lang,
+      t,
+      setLang
+    }
+  }, React.createElement("div", {
     className: "ps-app"
   }, React.createElement(GlobalStyle, null), React.createElement("div", {
     className: "ps-shell"
@@ -822,26 +1013,30 @@ function App() {
     className: "ps-title-th"
   }, "จับหาร")), React.createElement("p", {
     className: "ps-subtitle"
-  }, "จดทริป แชร์บิล จบทุกเรื่องเงินในกลุ่มเพื่อน")), hasAny && React.createElement("div", {
+  }, t("appTagline"))), React.createElement("div", {
     style: {
       display: "flex",
       gap: 6
     }
   }, React.createElement("button", {
     className: "ps-reset-btn",
+    onClick: () => setLang(lang === "th" ? "en" : "th"),
+    title: "Switch language"
+  }, lang === "th" ? "EN" : "TH"), hasAny && React.createElement(React.Fragment, null, React.createElement("button", {
+    className: "ps-reset-btn",
     onClick: reloadData,
     title: "รีเฟรชข้อมูล"
   }, React.createElement(RotateCcw, {
     size: 13
-  }), " รีเฟรช"), React.createElement("button", {
+  }), " ", t("refresh")), React.createElement("button", {
     className: "ps-reset-btn",
     onClick: resetAll,
     title: "ล้างข้อมูลทั้งหมด"
   }, React.createElement(Trash2, {
     size: 13
-  }), " ล้างข้อมูล"))), !loaded && React.createElement("div", {
+  }), " ", t("resetData"))))), !loaded && React.createElement("div", {
     className: "ps-empty"
-  }, "กำลังโหลดข้อมูล..."), loaded && view === "home" && React.createElement(Home, {
+  }, t("loading")), loaded && view === "home" && React.createElement(Home, {
     data: data,
     query: query,
     setQuery: setQuery,
@@ -855,7 +1050,15 @@ function App() {
       setSelectedId(id);
       setView("party");
     },
-    onClearAllPhotos: clearAllPhotos
+    onClearAllPhotos: clearAllPhotos,
+    onOpenTrash: () => setView("trash")
+  }), loaded && view === "trash" && React.createElement(TrashView, {
+    data: data,
+    onBack: () => setView("home"),
+    onRestoreTrip: restoreTrip,
+    onRestoreParty: restoreParty,
+    onHardDeleteTrip: hardDeleteTrip,
+    onHardDeleteParty: hardDeleteParty
   }), loaded && view === "newTrip" && React.createElement(NewTripForm, {
     onCancel: () => setView("home"),
     onCreate: createTrip
@@ -863,7 +1066,7 @@ function App() {
     trip: selectedTrip,
     onBack: () => setView("home"),
     onUpdate: fn => updateTrip(selectedTrip.id, fn),
-    onDelete: () => deleteTrip(selectedTrip.id),
+    onDelete: () => softDeleteTrip(selectedTrip.id),
     onClearPhotos: () => clearTripPhotos(selectedTrip.id)
   }), loaded && view === "newParty" && React.createElement(NewPartyForm, {
     title: "สร้างปาร์ตี้",
@@ -874,7 +1077,7 @@ function App() {
     party: selectedParty,
     onBack: () => setView("home"),
     onUpdate: fn => updateParty(selectedParty.id, fn),
-    onDelete: () => deleteParty(selectedParty.id),
+    onDelete: () => softDeleteParty(selectedParty.id),
     onClearPhotos: () => clearPartyPhotos(selectedParty.id)
   }), saveError && React.createElement("p", {
     style: {
@@ -882,7 +1085,80 @@ function App() {
       color: "var(--brick)",
       marginTop: 16
     }
-  }, "บันทึกข้อมูลไม่สำเร็จ ลองอีกครั้ง")));
+  }, "บันทึกข้อมูลไม่สำเร็จ ลองอีกครั้ง"))));
+}
+function TrashView({
+  data,
+  onBack,
+  onRestoreTrip,
+  onRestoreParty,
+  onHardDeleteTrip,
+  onHardDeleteParty
+}) {
+  const {
+    t,
+    lang
+  } = useT();
+  const trashedTrips = data.trips.filter(t => t.deletedAt).map(t => ({
+    ...t,
+    kind: "trip"
+  }));
+  const trashedParties = data.parties.filter(p => p.deletedAt);
+  const items = [...trashedTrips, ...trashedParties].sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt));
+  const hardDelete = item => {
+    const msg = lang === "th" ? `ลบ "${item.name}" ถาวรเลยไหม? กู้คืนไม่ได้อีกแล้ว` : `Permanently delete "${item.name}"? This can't be undone.`;
+    if (!window.confirm(msg)) return;
+    if (item.kind === "trip") onHardDeleteTrip(item.id);else onHardDeleteParty(item.id);
+  };
+  const restore = item => {
+    if (item.kind === "trip") onRestoreTrip(item.id);else onRestoreParty(item.id);
+  };
+  return React.createElement("div", null, React.createElement("div", {
+    className: "ps-backrow"
+  }, React.createElement("button", {
+    className: "ps-iconbtn",
+    onClick: onBack
+  }, React.createElement(ArrowLeft, {
+    size: 20
+  })), React.createElement("span", {
+    style: {
+      fontWeight: 700
+    }
+  }, t("trashTitle"))), React.createElement("p", {
+    className: "ps-hint",
+    style: {
+      marginBottom: 14
+    }
+  }, lang === "th" ? `รายการที่ลบจะถูกเก็บไว้ ${TRASH_RETENTION_DAYS} วัน ก่อนลบถาวรอัตโนมัติ` : `Deleted items are kept for ${TRASH_RETENTION_DAYS} days before being permanently removed.`), items.length === 0 ? React.createElement("div", {
+    className: "ps-empty"
+  }, t("trashEmpty")) : items.map(item => {
+    const daysLeft = Math.max(0, Math.ceil(TRASH_RETENTION_DAYS - daysSince(item.deletedAt)));
+    const label = item.kind === "trip" ? lang === "th" ? "ทริป" : "Trip" : item.kind === "quick" ? lang === "th" ? "แชร์ด่วน" : "Quick split" : lang === "th" ? "ปาร์ตี้" : "Party";
+    return React.createElement(TornCard, {
+      key: item.id
+    }, React.createElement("span", {
+      className: "ps-kind-badge kind-trip"
+    }, label), React.createElement("p", {
+      className: "ps-trip-name"
+    }, item.name), React.createElement("p", {
+      className: "ps-trip-meta"
+    }, lang === "th" ? `จะลบถาวรอีก ${daysLeft} วัน` : `Permanently deleted in ${daysLeft} day(s)`), React.createElement("div", {
+      className: "ps-form-actions",
+      style: {
+        marginTop: 12
+      }
+    }, React.createElement("button", {
+      className: "ps-btn",
+      onClick: () => restore(item)
+    }, React.createElement(Unlock, {
+      size: 14
+    }), " ", t("restore")), React.createElement("button", {
+      className: "ps-btn-ghost ps-btn-danger",
+      onClick: () => hardDelete(item)
+    }, React.createElement(Trash2, {
+      size: 13
+    }), " ", t("deleteForever"))));
+  }));
 }
 function Home({
   data,
@@ -892,13 +1168,19 @@ function Home({
   onNewParty,
   onOpenTrip,
   onOpenParty,
-  onClearAllPhotos
+  onClearAllPhotos,
+  onOpenTrash
 }) {
+  const {
+    t,
+    lang
+  } = useT();
   const combined = [...data.trips.map(t => ({
     ...t,
     kind: "trip"
-  })), ...data.parties].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  })), ...data.parties].filter(item => !item.deletedAt).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   const filtered = combined.filter(item => matchesSearch(item, query));
+  const trashCount = data.trips.filter(t => t.deletedAt).length + data.parties.filter(p => p.deletedAt).length;
   const usedBytes = bytesOf(data);
   const pct = Math.min(100, usedBytes / STORAGE_LIMIT_BYTES * 100);
   const photoCount = countPhotos(data);
@@ -910,21 +1192,28 @@ function Home({
     onClick: onNewTrip
   }, React.createElement(MapPin, {
     size: 20
-  }), React.createElement("span", null, "สร้างทริป"), React.createElement("small", null, "วันไป-กลับ ที่พัก อาหารแยกรายมื้อ")), React.createElement("button", {
+  }), React.createElement("span", null, t("createTrip")), React.createElement("small", null, t("createTripHint"))), React.createElement("button", {
     className: "ps-create-card",
     onClick: onNewParty
   }, React.createElement(Users, {
     size: 20
-  }), React.createElement("span", null, "สร้างปาร์ตี้ / แชร์บิล"), React.createElement("small", null, "ใส่วันที่หรือไม่ก็ได้ เหมาะกับมื้อเดียว งานเดียว หรือคำนวณด่วน"))), combined.length > 0 && React.createElement("div", {
+  }), React.createElement("span", null, t("createParty")), React.createElement("small", null, t("createPartyHint")))), React.createElement("div", {
+    className: "ps-trash-entry-row"
+  }, React.createElement("button", {
+    className: "ps-btn-ghost",
+    onClick: onOpenTrash
+  }, React.createElement(Trash2, {
+    size: 13
+  }), " ", t("trash"), trashCount > 0 ? ` (${trashCount})` : "")), combined.length > 0 && React.createElement("div", {
     className: "ps-storage-box"
   }, React.createElement("div", {
     className: "ps-storage-row"
-  }, React.createElement("span", null, "พื้นที่ใช้งาน: ", formatBytes(usedBytes), " / ~5MB ", photoCount > 0 ? `· รูปแนบ ${photoCount} รูป` : ""), photoCount > 0 && React.createElement("button", {
+  }, React.createElement("span", null, t("storageUsed"), ": ", formatBytes(usedBytes), " / ~5MB ", photoCount > 0 ? lang === "th" ? `· รูปแนบ ${photoCount} รูป` : `· ${photoCount} photo(s)` : ""), photoCount > 0 && React.createElement("button", {
     className: "ps-storage-clear",
     onClick: onClearAllPhotos
   }, React.createElement(Trash2, {
     size: 11
-  }), " ลบรูปทั้งหมด")), React.createElement("div", {
+  }), " ", t("clearAllPhotos"))), React.createElement("div", {
     className: "ps-storage-bar"
   }, React.createElement("div", {
     className: `ps-storage-fill ${usageLevel}`,
@@ -938,12 +1227,12 @@ function Home({
     className: "ps-search-icon"
   }), React.createElement("input", {
     className: "ps-input ps-search-input",
-    placeholder: "ค้นหาทริป จังหวัด ร้าน หรือโรงแรม...",
+    placeholder: t("searchPlaceholder"),
     value: query,
     onChange: e => setQuery(e.target.value)
   })), combined.length === 0 && React.createElement("div", {
     className: "ps-empty"
-  }, "ยังไม่มีทริปหรือปาร์ตี้ — เริ่มจากปุ่มด้านบนได้เลย"), combined.length > 0 && filtered.length === 0 && React.createElement("div", {
+  }, t("emptyHome")), combined.length > 0 && filtered.length === 0 && React.createElement("div", {
     className: "ps-empty"
   }, "ไม่พบผลลัพธ์ที่ตรงกับ \"", query, "\""), React.createElement("div", {
     className: "ps-grid"
@@ -961,19 +1250,22 @@ function StatusBadge({
   closed,
   pending
 }) {
+  const {
+    lang
+  } = useT();
   if (closed) return React.createElement("span", {
     className: "ps-badge closed"
-  }, "ปิดแล้ว ✓");
+  }, lang === "th" ? "ปิดแล้ว ✓" : "Closed ✓");
   return React.createElement("span", {
     className: `ps-badge ${pending === 0 ? "settled" : "pending"}`
-  }, pending === 0 ? "ลงตัวแล้ว" : `ค้าง ${pending} รายการ`);
+  }, pending === 0 ? lang === "th" ? "ลงตัวแล้ว" : "Settled" : lang === "th" ? `ค้าง ${pending} รายการ` : `${pending} pending`);
 }
 function TripCard({
   trip,
   onClick
 }) {
   const total = tripTotal(trip);
-  const net = computeBalancesFromEntries(trip.members, tripEntries(trip));
+  const net = settlementNet(trip.members, trip.households, tripEntries(trip));
   const pending = simplifyDebts(net).length;
   return React.createElement(TornCard, {
     className: "ps-trip-card",
@@ -1007,7 +1299,7 @@ function PartyCard({
   onClick
 }) {
   const total = partyTotal(party);
-  const net = computeBalancesFromEntries(party.members, party.expenses);
+  const net = settlementNet(party.members, party.households, party.expenses);
   const pending = simplifyDebts(net).length;
   const label = party.kind === "quick" ? "แชร์ด่วน" : "ปาร์ตี้";
   return React.createElement(TornCard, {
@@ -1189,6 +1481,177 @@ function PhotoThumbSmall({
     alt: "ใบเสร็จ"
   })));
 }
+function MemberManagerPanel({
+  members,
+  households,
+  isReferenced,
+  onAddMember,
+  onRemoveMember,
+  onCreateHousehold,
+  onDissolveHousehold
+}) {
+  const {
+    t,
+    lang
+  } = useT();
+  const [open, setOpen] = useState(false);
+  const [newMember, setNewMember] = useState("");
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const [groupSelection, setGroupSelection] = useState([]);
+  const [groupRep, setGroupRep] = useState("");
+  const unassigned = members.filter(m => !households.some(h => h.memberNames.includes(m)));
+  const addMember = () => {
+    const v = newMember.trim();
+    if (v && !members.includes(v)) {
+      onAddMember(v);
+      setNewMember("");
+    }
+  };
+  const removeMember = m => {
+    if (isReferenced(m)) {
+      window.alert(lang === "th" ? `ลบไม่ได้ — "${m}" มีรายการอ้างอิงอยู่ในนี้แล้ว (ลบรายการที่เกี่ยวข้องก่อน)` : `Can't remove — "${m}" is referenced by an existing entry (remove those first).`);
+      return;
+    }
+    const msg = lang === "th" ? `ลบสมาชิก "${m}" ออกจากลิสต์?` : `Remove "${m}" from the member list?`;
+    if (window.confirm(msg)) onRemoveMember(m);
+  };
+  const toggleGroupMember = m => setGroupSelection(p => p.includes(m) ? p.filter(x => x !== m) : [...p, m]);
+  const submitGroup = () => {
+    if (groupSelection.length < 2 || !groupRep) return;
+    onCreateHousehold({
+      id: uid("hh"),
+      name: groupName.trim() || groupRep,
+      memberNames: groupSelection,
+      representative: groupRep
+    });
+    setCreatingGroup(false);
+    setGroupName("");
+    setGroupSelection([]);
+    setGroupRep("");
+  };
+  if (!open) {
+    return React.createElement("button", {
+      className: "ps-btn-ghost",
+      style: {
+        marginBottom: 14
+      },
+      onClick: () => setOpen(true)
+    }, React.createElement(Users, {
+      size: 13
+    }), " ", t("manageMembers"));
+  }
+  return React.createElement(TornCard, null, React.createElement("p", {
+    className: "ps-section-title"
+  }, React.createElement(Users, {
+    size: 14
+  }), " ", t("manageMembers")), React.createElement("label", {
+    className: "ps-label"
+  }, lang === "th" ? "เพิ่มสมาชิกใหม่" : "Add a new member"), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, React.createElement("input", {
+    className: "ps-input",
+    placeholder: lang === "th" ? "พิมพ์ชื่อเล่นแล้วกด Enter" : "Type a name and press Enter",
+    value: newMember,
+    onChange: e => setNewMember(e.target.value),
+    onKeyDown: e => e.key === "Enter" && (e.preventDefault(), addMember())
+  }), React.createElement("button", {
+    className: "ps-btn-ghost",
+    type: "button",
+    onClick: addMember
+  }, React.createElement(Plus, {
+    size: 14
+  }), " ", t("add"))), React.createElement("label", {
+    className: "ps-label"
+  }, lang === "th" ? "สมาชิกทั้งหมด" : "All members"), React.createElement("div", {
+    className: "ps-chip-row"
+  }, members.map(m => React.createElement("span", {
+    className: "ps-chip",
+    key: m
+  }, m, React.createElement("button", {
+    onClick: () => removeMember(m)
+  }, React.createElement(X, {
+    size: 12
+  }))))), React.createElement("label", {
+    className: "ps-label"
+  }, lang === "th" ? "กลุ่ม/ครอบครัว (ตัวแทนจ่ายรวม)" : "Household groups (shared representative)"), React.createElement("p", {
+    className: "ps-hint"
+  }, t("householdHint")), households.map(h => React.createElement("div", {
+    key: h.id,
+    className: "ps-settle-item",
+    style: {
+      marginBottom: 8
+    }
+  }, React.createElement("div", null, React.createElement("b", null, lang === "th" ? "ตัวแทน" : "Rep", ": ", h.representative), React.createElement("div", {
+    className: "ps-ledger-meta"
+  }, lang === "th" ? "สมาชิก" : "Members", ": ", h.memberNames.join(", "))), React.createElement("button", {
+    className: "ps-ledger-del",
+    style: {
+      marginLeft: "auto"
+    },
+    onClick: () => onDissolveHousehold(h.id)
+  }, React.createElement(Trash2, {
+    size: 14
+  })))), !creatingGroup ? unassigned.length >= 2 && React.createElement("button", {
+    className: "ps-btn-ghost",
+    onClick: () => setCreatingGroup(true)
+  }, React.createElement(Plus, {
+    size: 13
+  }), " ", lang === "th" ? "สร้างกลุ่มใหม่" : "New group") : React.createElement("div", {
+    style: {
+      borderTop: "1px dashed var(--line)",
+      paddingTop: 12,
+      marginTop: 8
+    }
+  }, React.createElement("label", {
+    className: "ps-label"
+  }, lang === "th" ? "ชื่อกลุ่ม (ไม่บังคับ)" : "Group name (optional)"), React.createElement("input", {
+    className: "ps-input",
+    placeholder: lang === "th" ? "เช่น ครอบครัว A" : "e.g. Family A",
+    value: groupName,
+    onChange: e => setGroupName(e.target.value)
+  }), React.createElement("label", {
+    className: "ps-label"
+  }, lang === "th" ? "เลือกสมาชิกในกลุ่มนี้" : "Select members for this group"), React.createElement(MemberCheckRow, {
+    members: unassigned,
+    selected: groupSelection,
+    toggle: toggleGroupMember
+  }), groupSelection.length >= 2 && React.createElement(React.Fragment, null, React.createElement("label", {
+    className: "ps-label"
+  }, lang === "th" ? "ใครเป็นตัวแทนจ่าย" : "Who is the representative"), React.createElement("select", {
+    className: "ps-select",
+    value: groupRep,
+    onChange: e => setGroupRep(e.target.value)
+  }, React.createElement("option", {
+    value: ""
+  }, lang === "th" ? "— เลือก —" : "— choose —"), groupSelection.map(m => React.createElement("option", {
+    key: m,
+    value: m
+  }, m)))), React.createElement("div", {
+    className: "ps-form-actions"
+  }, React.createElement("button", {
+    className: "ps-btn",
+    disabled: groupSelection.length < 2 || !groupRep,
+    onClick: submitGroup
+  }, React.createElement(Check, {
+    size: 14
+  }), " ", lang === "th" ? "สร้างกลุ่ม" : "Create group"), React.createElement("button", {
+    className: "ps-btn-ghost",
+    onClick: () => {
+      setCreatingGroup(false);
+      setGroupSelection([]);
+      setGroupRep("");
+    }
+  }, t("cancel")))), React.createElement("div", {
+    className: "ps-form-actions"
+  }, React.createElement("button", {
+    className: "ps-btn-ghost",
+    onClick: () => setOpen(false)
+  }, t("close"))));
+}
 function NewTripForm({
   onCancel,
   onCreate
@@ -1276,6 +1739,9 @@ function TripDetail({
   onDelete,
   onClearPhotos
 }) {
+  const {
+    t
+  } = useT();
   const [tab, setTab] = useState("accom");
   const readOnly = !!trip.closed;
   const tripPhotoCount = trip.accommodations.filter(a => a.photo).length + trip.meals.reduce((s, m) => s + m.items.filter(it => it.photo).length, 0);
@@ -1357,20 +1823,20 @@ function TripDetail({
     }))
   }, trip.closed ? React.createElement(React.Fragment, null, React.createElement(Unlock, {
     size: 13
-  }), " เปิดแก้ไข") : React.createElement(React.Fragment, null, React.createElement(Lock, {
+  }), " ", t("reopen")) : React.createElement(React.Fragment, null, React.createElement(Lock, {
     size: 13
-  }), " จบทริป")), tripPhotoCount > 0 && React.createElement("button", {
+  }), " ", t("finishTrip"))), tripPhotoCount > 0 && React.createElement("button", {
     className: "ps-btn-ghost",
     onClick: onClearPhotos,
     title: "ลบรูปใบเสร็จทั้งหมดในทริปนี้ (เก็บรายการไว้)"
   }, React.createElement(Camera, {
     size: 13
-  }), " ลบรูป (", tripPhotoCount, ")"), React.createElement("button", {
+  }), " ", t("delete"), " (", tripPhotoCount, ")"), React.createElement("button", {
     className: "ps-btn-ghost ps-btn-danger",
     onClick: onDelete
   }, React.createElement(Trash2, {
     size: 13
-  }), " ลบทริป")), React.createElement("div", {
+  }), " ", t("deleteTrip"))), React.createElement("div", {
     className: "ps-members-strip"
   }, React.createElement(MapPin, {
     size: 13
@@ -1378,7 +1844,31 @@ function TripDetail({
     className: "ps-members-strip"
   }, React.createElement(Users, {
     size: 13
-  }), " ", trip.members.join(" · ")), readOnly && React.createElement(ClosedBanner, {
+  }), " ", trip.members.join(" · ")), !readOnly && React.createElement(MemberManagerPanel, {
+    members: trip.members,
+    households: trip.households || [],
+    isReferenced: name => isMemberReferenced(trip, name),
+    onAddMember: name => onUpdate(t => ({
+      ...t,
+      members: [...t.members, name]
+    })),
+    onRemoveMember: name => onUpdate(t => ({
+      ...t,
+      members: t.members.filter(m => m !== name),
+      households: (t.households || []).map(h => ({
+        ...h,
+        memberNames: h.memberNames.filter(m => m !== name)
+      })).filter(h => h.memberNames.length >= 2)
+    })),
+    onCreateHousehold: h => onUpdate(t => ({
+      ...t,
+      households: [...(t.households || []), h]
+    })),
+    onDissolveHousehold: id => onUpdate(t => ({
+      ...t,
+      households: (t.households || []).filter(h => h.id !== id)
+    }))
+  }), readOnly && React.createElement(ClosedBanner, {
     label: "ปิดทริปนี้แล้ว",
     onReopen: () => onUpdate(t => ({
       ...t,
@@ -1392,17 +1882,17 @@ function TripDetail({
     onClick: () => setTab("accom")
   }, React.createElement(Bed, {
     size: 14
-  }), " ที่พัก"), React.createElement("button", {
+  }), " ", t("tabAccommodation")), React.createElement("button", {
     className: `ps-tab ${tab === "meals" ? "on" : ""}`,
     onClick: () => setTab("meals")
   }, React.createElement(UtensilsCrossed, {
     size: 14
-  }), " อาหาร"), React.createElement("button", {
+  }), " ", t("tabMeals")), React.createElement("button", {
     className: `ps-tab ${tab === "report" ? "on" : ""}`,
     onClick: () => setTab("report")
   }, React.createElement(BarChart3, {
     size: 14
-  }), " รายงาน")), tab === "accom" && React.createElement(AccommodationTab, {
+  }), " ", t("tabReport"))), tab === "accom" && React.createElement(AccommodationTab, {
     trip: trip,
     readOnly: readOnly,
     onAdd: addAccommodation,
@@ -2064,11 +2554,15 @@ function MealCard({
 function ReportTab({
   trip
 }) {
+  const {
+    t
+  } = useT();
   const cat = tripCategoryTotals(trip);
   const grand = round2(cat.accommodation + cat.food + cat.beer + cat.liquor + cat.other);
   const breakdown = tripPersonBreakdown(trip);
   const net = computeBalancesFromEntries(trip.members, tripEntries(trip));
-  const settlements = simplifyDebts(net);
+  const households = trip.households || [];
+  const settlements = simplifyDebts(settlementNet(trip.members, households, tripEntries(trip)));
   return React.createElement("div", null, React.createElement(TornCard, null, React.createElement("p", {
     className: "ps-section-title"
   }, React.createElement(BarChart3, {
@@ -2145,9 +2639,11 @@ function ReportTab({
     }, "ใช้ไปทั้งหมด ฿", fmt(shareTotal), " (ที่พัก ฿", fmt(b.accommodation), " · อาหาร ฿", fmt(b.food), " · เบียร์ ฿", fmt(b.beer), " · เหล้า ฿", fmt(b.liquor), ") · จ่ายไปจริง ฿", fmt(b.paid)));
   })), React.createElement(TornCard, null, React.createElement("p", {
     className: "ps-section-title"
-  }, "ควรโอนเงินยังไง"), settlements.length === 0 ? React.createElement("div", {
+  }, t("settlementTitle")), households.length > 0 && React.createElement("p", {
+    className: "ps-hint"
+  }, t("householdHint")), settlements.length === 0 ? React.createElement("div", {
     className: "ps-stamp"
-  }, React.createElement("b", null, "ลงตัวแล้ว ✓")) : settlements.map((s, i) => React.createElement("div", {
+  }, React.createElement("b", null, t("settledStamp"))) : settlements.map((s, i) => React.createElement("div", {
     className: "ps-settle-item",
     key: i
   }, React.createElement("b", null, s.from), React.createElement(ArrowRight, {
@@ -2217,6 +2713,9 @@ function PartyDetail({
   onDelete,
   onClearPhotos
 }) {
+  const {
+    t
+  } = useT();
   const readOnly = !!party.closed;
   const emptyForm = () => ({
     desc: "",
@@ -2229,7 +2728,8 @@ function PartyDetail({
   const [form, setForm] = useState(emptyForm());
   const total = partyTotal(party);
   const net = computeBalancesFromEntries(party.members, party.expenses);
-  const settlements = simplifyDebts(net);
+  const households = party.households || [];
+  const settlements = simplifyDebts(settlementNet(party.members, households, party.expenses));
   const toggle = m => setForm(f => ({
     ...f,
     splitAmong: f.splitAmong.includes(m) ? f.splitAmong.filter(x => x !== m) : [...f.splitAmong, m]
@@ -2303,9 +2803,9 @@ function PartyDetail({
     }))
   }, party.closed ? React.createElement(React.Fragment, null, React.createElement(Unlock, {
     size: 13
-  }), " เปิดแก้ไข") : React.createElement(React.Fragment, null, React.createElement(Lock, {
+  }), " ", t("reopen")) : React.createElement(React.Fragment, null, React.createElement(Lock, {
     size: 13
-  }), " จบปาร์ตี้")), photoCount > 0 && React.createElement("button", {
+  }), " ", t("finishParty"))), photoCount > 0 && React.createElement("button", {
     className: "ps-btn-ghost",
     onClick: onClearPhotos,
     title: "ลบรูปใบเสร็จทั้งหมดในนี้ (เก็บรายการไว้)"
@@ -2316,11 +2816,35 @@ function PartyDetail({
     onClick: onDelete
   }, React.createElement(Trash2, {
     size: 13
-  }), " ลบ")), React.createElement("div", {
+  }), " ", t("delete"))), React.createElement("div", {
     className: "ps-members-strip"
   }, React.createElement(Users, {
     size: 13
-  }), " ", party.members.join(" · "), party.date ? ` · ${fmtDate(party.date)}` : ""), readOnly && React.createElement(ClosedBanner, {
+  }), " ", party.members.join(" · "), party.date ? ` · ${fmtDate(party.date)}` : ""), !readOnly && React.createElement(MemberManagerPanel, {
+    members: party.members,
+    households: party.households || [],
+    isReferenced: name => isMemberReferenced(party, name),
+    onAddMember: name => onUpdate(p => ({
+      ...p,
+      members: [...p.members, name]
+    })),
+    onRemoveMember: name => onUpdate(p => ({
+      ...p,
+      members: p.members.filter(m => m !== name),
+      households: (p.households || []).map(h => ({
+        ...h,
+        memberNames: h.memberNames.filter(m => m !== name)
+      })).filter(h => h.memberNames.length >= 2)
+    })),
+    onCreateHousehold: h => onUpdate(p => ({
+      ...p,
+      households: [...(p.households || []), h]
+    })),
+    onDissolveHousehold: id => onUpdate(p => ({
+      ...p,
+      households: (p.households || []).filter(h => h.id !== id)
+    }))
+  }), readOnly && React.createElement(ClosedBanner, {
     label: `ปิด${label}นี้แล้ว`,
     onReopen: () => onUpdate(p => ({
       ...p,
@@ -2445,9 +2969,11 @@ function PartyDetail({
     style: {
       marginTop: 18
     }
-  }, "ควรโอนเงินยังไง"), settlements.length === 0 ? React.createElement("div", {
+  }, t("settlementTitle")), households.length > 0 && React.createElement("p", {
+    className: "ps-hint"
+  }, t("householdHint")), settlements.length === 0 ? React.createElement("div", {
     className: "ps-stamp"
-  }, React.createElement("b", null, "ลงตัวแล้ว ✓")) : settlements.map((s, i) => React.createElement("div", {
+  }, React.createElement("b", null, t("settledStamp"))) : settlements.map((s, i) => React.createElement("div", {
     className: "ps-settle-item",
     key: i
   }, React.createElement("b", null, s.from), React.createElement(ArrowRight, {
@@ -2498,6 +3024,7 @@ function GlobalStyle() {
       .ps-storage-fill.danger { background: var(--brick); }
 
       .ps-search-wrap { position:relative; margin-bottom: 18px; }
+      .ps-trash-entry-row { display:flex; justify-content:flex-end; margin-bottom: 14px; }
       .ps-search-icon { position:absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-soft); }
       .ps-search-input { padding-left: 34px; }
 
